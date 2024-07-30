@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-webcompanion-chat
+spec:
+  selector:
+    app: my-webcompanion-chat
+  ports:
+  - protocol: TCP
+    port: 8501
+    # targetPort: 8501
+    name: webcompanion-chat-port
+  # type: NodePort

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-webcompanion-chat-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: "my-webcompanion-chat-token"
+type: kubernetes.io/service-account-token

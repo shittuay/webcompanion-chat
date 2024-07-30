@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-webcompanion-chat
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: my-webcompanion-chat
+  template:
+    metadata:
+      labels:
+        app: my-webcompanion-chat
+    spec:
+      containers:
+      - name: my-webcompanion-chat
+        image: shittuay/my-webcompanion-chat:latest
+        ports:
+        - containerPort: 8501
+        resources:
+          limits:
+            cpu: "1"
+            memory: "512Mi"
+          requests:
+            cpu: "0.5"
+            memory: "256Mi"

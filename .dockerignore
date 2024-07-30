@@ -1,0 +1,6 @@
+.env
+**/venv
+**/cloudflare
+**/k8s
+user_accounts.db
+chat_history.db
