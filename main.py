@@ -2,15 +2,12 @@ import streamlit as st
 import sqlite3
 import os
 import time
-import hashlib
 import ollama as ol
 
 # Initialize the SQLite database
 DB_PATH = 'chat_history.db'
-USER_DB_PATH = 'user_accounts.db'
 
 def init_db():
-    # Initialize chat history database
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''
@@ -20,48 +17,15 @@ def init_db():
             content TEXT NOT NULL
         )
     ''')
-    conn.commit()
-    conn.close()
-
-    # Initialize user accounts database
-    conn = sqlite3.connect(USER_DB_PATH)
-    c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT NOT NULL UNIQUE,
-            username TEXT NOT NULL UNIQUE,
             password TEXT NOT NULL
         )
     ''')
     conn.commit()
     conn.close()
-
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def create_user(email, username, password):
-    conn = sqlite3.connect(USER_DB_PATH)
-    c = conn.cursor()
-    try:
-        c.execute('INSERT INTO users (email, username, password) VALUES (?, ?, ?)', 
-                  (email, username, hash_password(password)))
-        conn.commit()
-    except sqlite3.IntegrityError as e:
-        if 'email' in str(e):
-            st.error("Email already exists")
-        else:
-            st.error("Username already exists")
-    conn.close()
-
-def authenticate_user(username, password):
-    conn = sqlite3.connect(USER_DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE username = ? AND password = ?', 
-              (username, hash_password(password)))
-    user = c.fetchone()
-    conn.close()
-    return user
 
 def insert_message(role, content):
     conn = sqlite3.connect(DB_PATH)
@@ -85,7 +49,22 @@ def clear_history():
     conn.commit()
     conn.close()
 
-# Initialize the database
+def create_user(email, password):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, password))
+    conn.commit()
+    conn.close()
+
+def authenticate_user(email, password):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT * FROM users WHERE email = ? AND password = ?', (email, password))
+    user = c.fetchone()
+    conn.close()
+    return user
+
+# Ensure the database is initialized
 init_db()
 
 def question(query):
@@ -109,46 +88,63 @@ st.set_page_config(page_title="👨🏻 webcompanion-chat")
 with st.sidebar:
     st.title("👨🏻 webcompanion-chat")
 
-    # Display the conversation history in the sidebar
-    st.write("Conversation History:")
-    history = fetch_history()
-    for role, content in history:
-        display_role = "User" if role == 'user' else "Assistant"
-        st.write(f"{display_role}: {content}")
+# User authentication
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "login_mode" not in st.session_state:
+    st.session_state.login_mode = "Login"
 
-    # Button to clear chat history
-    st.sidebar.button('Clear Chat History', on_click=clear_history)
-
-# User Authentication
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-if not st.session_state.authenticated:
-    mode = st.radio("Select Mode", ("Sign In", "Sign Up"))
-
-    if mode == "Sign In":
-        st.subheader("Sign In")
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        if st.button("Sign In"):
-            user = authenticate_user(username, password)
+def show_auth_page():
+    st.subheader(st.session_state.login_mode)
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+    if st.session_state.login_mode == "Login":
+        if st.button("Login"):
+            user = authenticate_user(email, password)
             if user:
-                st.session_state.authenticated = True
+                st.session_state.logged_in = True
+                st.session_state.user = user
                 st.success("Login successful")
             else:
-                st.error("Invalid username or password")
+                st.error("Invalid email or password")
+        st.write("Don't have an account? [Create one](#)", unsafe_allow_html=True)
+        if st.button("Create an Account"):
+            st.session_state.login_mode = "Create Account"
+    else:
+        if st.button("Create Account"):
+            try:
+                create_user(email, password)
+                st.success("Account created successfully")
+                st.session_state.login_mode = "Login"
+            except sqlite3.IntegrityError:
+                st.error("Email already exists")
+        st.write("Already have an account? [Login](#)", unsafe_allow_html=True)
+        if st.button("Login"):
+            st.session_state.login_mode = "Login"
 
-    elif mode == "Sign Up":
-        st.subheader("Sign Up")
-        email = st.text_input("Email")
-        new_username = st.text_input("Username")
-        new_password = st.text_input("Password", type="password")
-        if st.button("Sign Up"):
-            create_user(email, new_username, new_password)
-            st.success("Account created successfully")
-
+if not st.session_state.logged_in:
+    show_auth_page()
 else:
-    st.subheader("Ask a Question")
+    with st.sidebar:
+        st.write("Conversation History:")
+        history = fetch_history()
+        for role, content in history:
+            display_role = "User" if role == 'user' else "Assistant"
+            st.write(f"{display_role}: {content}")
+
+        # Button to clear chat history
+        st.sidebar.button('Clear Chat History', on_click=clear_history)
+
+    # Store LLM-generated responses
+    if "messages" not in st.session_state.keys():
+        st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
+
+    # Display or clear chat messages
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+
+    # User-provided prompt
     if prompt := st.chat_input("Your message"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -166,26 +162,3 @@ else:
                     time.sleep(0.05)  # Adjust the delay as needed
             message = {"role": "assistant", "content": full_response}
             st.session_state.messages.append(message)
-    
-    # Add file uploader below the message input
-    st.subheader("Upload a File")
-    uploaded_file = st.file_uploader("Choose a file", type=["png", "jpg", "jpeg", "pdf", "txt", "webm", "mp4", "mkv"])
-    if uploaded_file is not None:
-        # Handle the uploaded file
-        file_details = {"Filename": uploaded_file.name, "FileType": uploaded_file.type, "FileSize": uploaded_file.size}
-        st.write(file_details)
-
-        # Save the uploaded file to a designated directory
-        save_path = os.path.join("uploads", uploaded_file.name)
-        with open(save_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        st.success(f"File saved to {save_path}")
-
-    # Store LLM-generated responses
-    if "messages" not in st.session_state.keys():
-        st.session_state.messages = [{"role": "assistant", "content": "How may I assist you today?"}]
-
-    # Display or clear chat messages
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
