@@ -3,6 +3,7 @@ import sqlite3
 import os
 import time
 import ollama as ol
+import httpx
 
 # Initialize the SQLite database
 DB_PATH = 'chat_history.db'
@@ -71,16 +72,23 @@ def question(query):
     insert_message('user', query)
     history = fetch_history()
     ans = ""
-    data = ol.chat(
-        model='llama3',
-        messages=[{'role': role, 'content': content} for role, content in history],
-        stream=True 
-    )
 
-    for d in data:
-        ans += d['message']['content']
-    
-    insert_message('assistant', ans)
+    try:
+        data = ol.chat(
+            model='llama3',
+            messages=[{'role': role, 'content': content} for role, content in history],
+            stream=True 
+        )
+
+        for d in data:
+            ans += d['message']['content']
+
+        insert_message('assistant', ans)
+    except httpx.ConnectError:
+        st.error("Failed to connect to the server. Please check your network connection and try again.")
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {e}")
+
     return ans
 
 # App title
@@ -107,7 +115,6 @@ def show_auth_page():
                 st.success("Login successful")
             else:
                 st.error("Invalid email or password")
-        st.write("Don't have an account? [Create one](#)", unsafe_allow_html=True)
         if st.button("Create an Account"):
             st.session_state.login_mode = "Create Account"
     else:
@@ -118,7 +125,6 @@ def show_auth_page():
                 st.session_state.login_mode = "Login"
             except sqlite3.IntegrityError:
                 st.error("Email already exists")
-        st.write("Already have an account? [Login](#)", unsafe_allow_html=True)
         if st.button("Login"):
             st.session_state.login_mode = "Login"
 
